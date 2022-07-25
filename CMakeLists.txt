@@ -71,6 +71,13 @@ set_target_properties(
 	)
 
 add_library(
+	shared_lib OBJECT
+	source/shared.cpp
+	)
+	
+target_compile_features(shared_lib PUBLIC cxx_std_20)
+
+add_library(
 	svr_lib OBJECT
 	${CMAKE_CURRENT_BINARY_DIR}/message.h
 	)
@@ -95,6 +102,7 @@ target_link_libraries(svr
 	PRIVATE
 	clt-svr-proto_lib
 	svr_lib
+	shared_lib
 	${Protobuf_LIBRARIES}
 	fmt::fmt
 	Threads::Threads
@@ -115,6 +123,7 @@ target_compile_features(clt PRIVATE cxx_std_20)
 target_link_libraries(clt
 	PRIVATE
 	clt-svr-proto_lib
+	shared_lib
 	${Protobuf_LIBRARIES}
 	fmt::fmt
 	Threads::Threads)
