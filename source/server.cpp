@@ -27,7 +27,7 @@
 
 bool is_leader;
 rocksdb::DB *db;
-unsigned server_id; // id of the server
+unsigned server_id;                // id of the server
 std::vector<in_port_t> raft_ports; // ports of the raft servers
 unsigned term = 0;
 unsigned prev_log_index = 0;
@@ -48,23 +48,6 @@ std::vector<int> split(const std::string &s, char delimiter)
 
 void *handle_client(void *args)
 {
-  rocksdb::Options opts;
-  // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
-  opts.IncreaseParallelism();
-  opts.OptimizeLevelStyleCompaction();
-  // create the DB if it's not already present
-  opts.create_if_missing = true;
-  opts.compression_per_level.resize(opts.num_levels);
-#if 1
-  for (int i = 0; i < opts.num_levels; i++)
-  {
-    opts.compression_per_level[i] = rocksdb::kNoCompression;
-  }
-#endif
-  opts.compression = rocksdb::kNoCompression;
-  std::string db_path = "./db" + std::to_string(getpid());
-  rocksdb::Status status = rocksdb::DB::Open(opts, "./testdb", &db);
-  assert(status.ok());
 
   in_port_t port = *(in_port_t *)args;
   int sockfd = listening_socket(port);
@@ -124,7 +107,6 @@ void *handle_client(void *args)
       {
         response.set_status(kvs::server_response::OK);
         response.set_value(value);
-        // send appendentries to all other servers
       }
       else
       {
@@ -139,6 +121,19 @@ void *handle_client(void *args)
       if (status.ok())
       {
         response.set_status(kvs::server_response::OK);
+        replicate_request.SerializeToString(&raft_string);
+        // connect to each server and send message
+        for (auto port : raft_ports)
+        {
+          int sockfd = connect_socket("localhost", port);
+          if (sockfd < 0)
+          {
+            perror("Connecting socket failed\n");
+            exit(1);
+          }
+          secure_send_message(sockfd, raft_string);
+          close(sockfd);
+        }
       }
       else
       {
@@ -146,6 +141,7 @@ void *handle_client(void *args)
         response.set_status(kvs::server_response::ERROR);
       }
     }
+
     response.set_id(server_id);
     response.SerializeToString(&response_string);
     secure_send_message(newsockfd, response_string);
@@ -170,14 +166,85 @@ void *handle_servers(void *args)
       perror("Accepting connection failed\n");
       exit(1);
     }
-    std::cout << "Accepted connection from " << newsockfd << std::endl;
+    // Receive message from another server
+    auto [bytecount, buffer] = secure_recv(newsockfd);
+    if (bytecount <= 0)
+    {
+      break;
+    }
+    if (buffer == nullptr || bytecount == 0)
+    {
+      return nullptr;
+    }
+    // Parse the message from the buffer
+    raft::AppendEntriesRequest request;
+    auto size = bytecount;
+    std::string raft_string(buffer.get(), size);
+    request.ParseFromString(raft_string);
+    std::string key = request.entry().msg().key();
+    std::string value = request.entry().msg().value();
+    // Write to the database
+    auto status = db->Put(rocksdb::WriteOptions(), key, value);
+    /*
+    // Check if the message is valid
+    if (request.term() < term)
+    {
+      // Send Not leader message to client
+      kvs::server_response response;
+      response.set_status(kvs::server_response::NOT_LEADER);
+      response.set_id(server_id);
+      response.SerializeToString(&raft_string);
+      secure_send_message(newsockfd, raft_string);
+      continue;
+    }*/
+    /*
+    // Update the state of the server
+    if (request.term() > term)
+    {
+      term = request.term();
+      is_leader = false;
+    }
+    if (request.term() == term)
+    {
+      if (request.leaderid() > server_id)
+      {
+        server_id = request.leaderid();
+        is_leader = false;
+      }
+      if (request.leaderid() == server_id)
+      {
+        if (request.prevlogindex() > prev_log_index)
+        {
+          prev_log_index = request.prevlogindex();
+          prev_log_term = request.prevlogterm();
+          commit_index = request.leadercommit();
+        }
+      }
+    }*/
   }
-  std::cout << "Thread is closing" << std::endl;
   return nullptr;
 }
 
 auto main(int argc, char *argv[]) -> int
 {
+  rocksdb::Options opts;
+  // Optimize RocksDB. This is the easiest way to get RocksDB to perform well
+  opts.IncreaseParallelism();
+  opts.OptimizeLevelStyleCompaction();
+  // create the DB if it's not already present
+  opts.create_if_missing = true;
+  opts.compression_per_level.resize(opts.num_levels);
+#if 1
+  for (int i = 0; i < opts.num_levels; i++)
+  {
+    opts.compression_per_level[i] = rocksdb::kNoCompression;
+  }
+#endif
+  opts.compression = rocksdb::kNoCompression;
+  std::string db_path = "./db" + std::to_string(getpid());
+  rocksdb::Status status = rocksdb::DB::Open(opts, db_path, &db);
+  assert(status.ok());
+
   cxxopts::Options options("svr", "server for cloud-lab task 3");
   options.allow_unrecognised_options().add_options()(
       "p,port", "Port of the server", cxxopts::value<in_port_t>())(
