@@ -28,6 +28,11 @@
 bool is_leader;
 rocksdb::DB *db;
 unsigned server_id; // id of the server
+std::vector<in_port_t> raft_ports; // ports of the raft servers
+unsigned term = 0;
+unsigned prev_log_index = 0;
+unsigned prev_log_term = 0;
+unsigned commit_index = 0;
 
 std::vector<int> split(const std::string &s, char delimiter)
 {
@@ -96,6 +101,14 @@ void *handle_client(void *args)
 
     raft::AppendEntriesRequest replicate_request;
     std::string raft_string;
+    replicate_request.set_leaderid(server_id);
+    replicate_request.set_term(term);
+    replicate_request.set_prevlogindex(prev_log_index);
+    replicate_request.set_prevlogterm(prev_log_term);
+    replicate_request.set_leadercommit(commit_index);
+    raft::AppendEntriesRequest::Entry entry;
+    entry.set_allocated_msg(&request);
+    replicate_request.set_allocated_entry(&entry);
 
     if (request.type() != kvs::client_msg::DIRECT_GET && is_leader == false)
     {
@@ -201,7 +214,7 @@ auto main(int argc, char *argv[]) -> int
   }
 
   in_port_t port = args["port"].as<in_port_t>();
-  std::vector<in_port_t> raft_ports = args["raft_ports"].as<std::vector<in_port_t>>();
+  raft_ports = args["raft_ports"].as<std::vector<in_port_t>>();
   server_id = args["server_id"].as<unsigned>();
   is_leader = args["leader"].as<bool>();
   in_port_t rpc_port = raft_ports[server_id];
