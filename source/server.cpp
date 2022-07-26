@@ -83,14 +83,14 @@ void *handle_client(void *args)
     kvs::server_response response;
     std::string response_string;
 
-    raft::AppendEntriesRequest* replicate_request = (raft::AppendEntriesRequest*) malloc(sizeof(raft::AppendEntriesRequest));
+    raft::AppendEntriesRequest replicate_request;
     std::string raft_string;
-    replicate_request->set_leaderid(server_id);
-    replicate_request->set_term(term);
-    replicate_request->set_prevlogindex(prev_log_index);
-    replicate_request->set_prevlogterm(prev_log_term);
-    replicate_request->set_leadercommit(commit_index);
-    replicate_request->set_allocated_msg(&request);
+    replicate_request.set_leaderid(server_id);
+    replicate_request.set_term(term);
+    replicate_request.set_prevlogindex(prev_log_index);
+    replicate_request.set_prevlogterm(prev_log_term);
+    replicate_request.set_leadercommit(commit_index);
+    *replicate_request.mutable_msg() = request;
     
     if (request.type() != kvs::client_msg::DIRECT_GET && is_leader == false)
     {
@@ -121,7 +121,7 @@ void *handle_client(void *args)
       if (status.ok())
       {
         response.set_status(kvs::server_response::OK);
-        replicate_request->SerializeToString(&raft_string);
+        replicate_request.SerializeToString(&raft_string);
         // connect to each server and send message
         for (int i=0; i< raft_ports.size(); i++){
           in_port_t server_port = raft_ports[i];
@@ -137,7 +137,6 @@ void *handle_client(void *args)
             exit(1);
           }
           secure_send_message(replicatefd, raft_string);
-          replicate_request->release_msg();
           std::cout<<"Sent message to "<<server_port<<std::endl;
         }
       }
@@ -177,6 +176,7 @@ void *handle_servers(void *args)
       perror("Accepting connection failed\n");
       exit(1);
     }
+
     // Receive message from another server
     auto [bytecount, buffer] = secure_recv(newsockfd);
     if (bytecount <= 0)
