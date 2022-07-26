@@ -55,7 +55,7 @@ void *handle_client(void *args)
     perror("Listening socket failed\n");
     exit(1);
   }
-  std::cout << "Waiting for a client to connect\n";
+  
   int newsockfd = accept_connection(sockfd);
   while (newsockfd != -1)
   {
@@ -65,7 +65,7 @@ void *handle_client(void *args)
       perror("Accepting connection failed\n");
       exit(1);
     }
-    std::cout << "Accepted connection from " << newsockfd << std::endl;
+    
     auto [bytecount, buffer] = secure_recv(newsockfd);
     if (bytecount <= 0)
     {
@@ -117,7 +117,7 @@ void *handle_client(void *args)
       std::string key = request.key();
       std::string value = request.value();
       auto status = db->Put(rocksdb::WriteOptions(), key, value);
-      std::cout<<"Put "<<key<<" "<<value<<std::endl;
+      
       if (status.ok())
       {
         response.set_status(kvs::server_response::OK);
@@ -128,7 +128,7 @@ void *handle_client(void *args)
           if(i == server_id){
             continue;
           }
-          std::cout << "Sending message to " << server_port << std::endl;
+          
           if(server_port == port ) continue;
           int replicatefd = connect_socket("localhost", server_port);
           if (replicatefd < 0)
@@ -137,7 +137,7 @@ void *handle_client(void *args)
             exit(1);
           }
           secure_send_message(replicatefd, raft_string);
-          std::cout<<"Sent message to "<<server_port<<std::endl;
+          
         }
       }
       else
@@ -145,12 +145,12 @@ void *handle_client(void *args)
         response.set_status(kvs::server_response::ERROR);
       }
     }
-    std::cout << "Sending response to " << newsockfd << std::endl;
+    
     response.set_id(server_id);
     response.SerializeToString(&response_string);
     secure_send_message(newsockfd, response_string);
-    std::cout << "Sent response to " << newsockfd << std::endl;
-    std::cout << "Waiting for a client to connect\n";
+    
+    
     newsockfd = accept_connection(sockfd);
   }
   close(sockfd);
@@ -170,7 +170,7 @@ void *handle_servers(void *args)
   while (true)
   {
     int newsockfd = accept_connection(sockfd);
-    std::cout << "Accepted connection from " << newsockfd << std::endl;
+    
     if (newsockfd < 0)
     {
       perror("Accepting connection failed\n");
@@ -187,7 +187,7 @@ void *handle_servers(void *args)
     {
       return nullptr;
     }
-    std::cout<<"Received message from "<<newsockfd<<std::endl;
+    
     // Parse the message from the buffer
     raft::AppendEntriesRequest request;
     auto size = bytecount;
@@ -198,7 +198,7 @@ void *handle_servers(void *args)
     // Write to the database
     auto status = db->Put(rocksdb::WriteOptions(), key, value);
     assert(status.ok());
-    std::cout<<"Put "<<key<<" "<<value<<std::endl;
+    
     /*
     // Check if the message is valid
     if (request.term() < term)

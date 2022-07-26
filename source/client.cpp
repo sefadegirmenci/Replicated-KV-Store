@@ -116,7 +116,6 @@ auto main(int argc, char *argv[]) -> int
   secure_send_message(sockfd, request_str);
   // receive the message from server
   auto [bytecount, buffer] = secure_recv(sockfd);
-  std::cout << "Received the response" << std::endl;
   if (bytecount <= 0)
   {
     return 1;
@@ -129,7 +128,6 @@ auto main(int argc, char *argv[]) -> int
   auto size = bytecount;
   std::string response_string(buffer.get(), size);
   server_resp.ParseFromString(response_string);
-  std::cout << "The response is: " << server_resp.DebugString() << std::endl;
   if(server_resp.status() == kvs::server_response::NO_KEY) {
     return 3;
   }
