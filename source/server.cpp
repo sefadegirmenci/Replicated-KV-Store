@@ -48,7 +48,6 @@ std::vector<int> split(const std::string &s, char delimiter)
 
 void *handle_client(void *args)
 {
-
   in_port_t port = *(in_port_t *)args;
   int sockfd = listening_socket(port);
   if (sockfd < 0)
@@ -56,9 +55,11 @@ void *handle_client(void *args)
     perror("Listening socket failed\n");
     exit(1);
   }
-  while (true)
+  std::cout << "Waiting for a client to connect\n";
+  int newsockfd = accept_connection(sockfd);
+  while (newsockfd != -1)
   {
-    int newsockfd = accept_connection(sockfd);
+
     if (newsockfd < 0)
     {
       perror("Accepting connection failed\n");
@@ -82,17 +83,15 @@ void *handle_client(void *args)
     kvs::server_response response;
     std::string response_string;
 
-    raft::AppendEntriesRequest replicate_request;
+    raft::AppendEntriesRequest* replicate_request = (raft::AppendEntriesRequest*) malloc(sizeof(raft::AppendEntriesRequest));
     std::string raft_string;
-    replicate_request.set_leaderid(server_id);
-    replicate_request.set_term(term);
-    replicate_request.set_prevlogindex(prev_log_index);
-    replicate_request.set_prevlogterm(prev_log_term);
-    replicate_request.set_leadercommit(commit_index);
-    raft::AppendEntriesRequest::Entry entry;
-    entry.set_allocated_msg(&request);
-    replicate_request.set_allocated_entry(&entry);
-
+    replicate_request->set_leaderid(server_id);
+    replicate_request->set_term(term);
+    replicate_request->set_prevlogindex(prev_log_index);
+    replicate_request->set_prevlogterm(prev_log_term);
+    replicate_request->set_leadercommit(commit_index);
+    replicate_request->set_allocated_msg(&request);
+    
     if (request.type() != kvs::client_msg::DIRECT_GET && is_leader == false)
     {
       // Send Not leader message to client
@@ -118,34 +117,45 @@ void *handle_client(void *args)
       std::string key = request.key();
       std::string value = request.value();
       auto status = db->Put(rocksdb::WriteOptions(), key, value);
+      std::cout<<"Put "<<key<<" "<<value<<std::endl;
       if (status.ok())
       {
         response.set_status(kvs::server_response::OK);
-        replicate_request.SerializeToString(&raft_string);
+        replicate_request->SerializeToString(&raft_string);
         // connect to each server and send message
-        for (auto port : raft_ports)
-        {
-          int sockfd = connect_socket("localhost", port);
-          if (sockfd < 0)
+        for (int i=0; i< raft_ports.size(); i++){
+          in_port_t server_port = raft_ports[i];
+          if(i == server_id){
+            continue;
+          }
+          std::cout << "Sending message to " << server_port << std::endl;
+          if(server_port == port ) continue;
+          int replicatefd = connect_socket("localhost", server_port);
+          if (replicatefd < 0)
           {
             perror("Connecting socket failed\n");
             exit(1);
           }
-          secure_send_message(sockfd, raft_string);
-          close(sockfd);
+          secure_send_message(replicatefd, raft_string);
+          replicate_request->release_msg();
+          std::cout<<"Sent message to "<<server_port<<std::endl;
         }
       }
       else
       {
-        kvs::server_response response;
         response.set_status(kvs::server_response::ERROR);
       }
     }
-
+    std::cout << "Sending response to " << newsockfd << std::endl;
     response.set_id(server_id);
     response.SerializeToString(&response_string);
     secure_send_message(newsockfd, response_string);
+    std::cout << "Sent response to " << newsockfd << std::endl;
+    std::cout << "Waiting for a client to connect\n";
+    newsockfd = accept_connection(sockfd);
   }
+  close(sockfd);
+  close(newsockfd);
   return nullptr;
 }
 
@@ -161,6 +171,7 @@ void *handle_servers(void *args)
   while (true)
   {
     int newsockfd = accept_connection(sockfd);
+    std::cout << "Accepted connection from " << newsockfd << std::endl;
     if (newsockfd < 0)
     {
       perror("Accepting connection failed\n");
@@ -176,15 +187,18 @@ void *handle_servers(void *args)
     {
       return nullptr;
     }
+    std::cout<<"Received message from "<<newsockfd<<std::endl;
     // Parse the message from the buffer
     raft::AppendEntriesRequest request;
     auto size = bytecount;
     std::string raft_string(buffer.get(), size);
     request.ParseFromString(raft_string);
-    std::string key = request.entry().msg().key();
-    std::string value = request.entry().msg().value();
+    std::string key = request.msg().key();
+    std::string value = request.msg().value();
     // Write to the database
     auto status = db->Put(rocksdb::WriteOptions(), key, value);
+    assert(status.ok());
+    std::cout<<"Put "<<key<<" "<<value<<std::endl;
     /*
     // Check if the message is valid
     if (request.term() < term)
