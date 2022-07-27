@@ -138,7 +138,7 @@ auto main(int argc, char *argv[]) -> int
     return 4;
   }
   else if (server_resp.status() == kvs::server_response::OK){
-    if(operation == "GET") {
+    if(operation == "GET" || operation == "DIRECT_GET") {
       std::cout << server_resp.value() << std::endl;
     }
   } else {
