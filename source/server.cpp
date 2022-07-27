@@ -90,8 +90,9 @@ void *handle_client(void *args)
     replicate_request.set_prevlogindex(prev_log_index);
     replicate_request.set_prevlogterm(prev_log_term);
     replicate_request.set_leadercommit(commit_index);
-    *replicate_request.mutable_msg() = request;
-    
+    raft::Entry* entry = replicate_request.add_entries();
+    *entry->mutable_msg() = request;
+        
     if (request.type() != kvs::client_msg::DIRECT_GET && is_leader == false)
     {
       // Send Not leader message to client
@@ -193,8 +194,8 @@ void *handle_servers(void *args)
     auto size = bytecount;
     std::string raft_string(buffer.get(), size);
     request.ParseFromString(raft_string);
-    std::string key = request.msg().key();
-    std::string value = request.msg().value();
+    std::string key = request.entries(0).msg().key();
+    std::string value = request.entries(0).msg().value();
     // Write to the database
     auto status = db->Put(rocksdb::WriteOptions(), key, value);
     assert(status.ok());
